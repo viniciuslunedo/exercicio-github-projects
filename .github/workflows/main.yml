@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      project: write
+      projects: write
     steps:
       - name: Move issue to “To Do”
         uses: actions/github-script@v7
@@ -18,7 +18,7 @@ jobs:
             const statusFieldName = 'Status'
             const targetOptionName = 'To Do'
 
-            const { data: project } = await github.graphql(`
+            const projectQuery = await github.graphql(`
               query($owner:String!, $number:Int!) {
                 organization(login: $owner) {
                   projectV2(number: $number) {
@@ -30,12 +30,13 @@ jobs:
               }
             `, { owner: projectOwner, number: projectNumber })
 
-            const projectId = project.organization.projectV2.id
-            const field = project.organization.projectV2.fields.nodes.find(f => f.name === statusFieldName)
+            const project = projectQuery.organization.projectV2
+            const projectId = project.id
+            const field = project.fields.nodes.find(f => f.name === statusFieldName)
             const option = field.options.find(o => o.name === targetOptionName)
 
             const issueNumber = context.payload.issue.number
-            let item = project.organization.projectV2.items.nodes.find(i => i.content && i.content.number === issueNumber)
+            let item = project.items.nodes.find(i => i.content && i.content.number === issueNumber)
             if (!item) {
               const addRes = await github.graphql(`
                 mutation($projectId: ID!, $contentId: ID!) {
