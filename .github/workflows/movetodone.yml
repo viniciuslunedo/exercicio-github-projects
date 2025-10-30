@@ -1,0 +1,60 @@
+name: Move issue to Done when closed
+on:
+  issues:
+    types: [closed]
+jobs:
+  move_to_done:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Move issue to “Done”
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const projectOwner = '${{ github.repository_owner }}'
+            const projectNumber = <SEU_NUMERO_DO_PROJETO>
+            const statusFieldName = 'Status'
+            const targetOptionName = 'Done'
+
+            const query = await github.graphql(`
+              query($owner:String!, $number:Int!) {
+                organization(login: $owner) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first:50) { nodes { id name options { id name } } }
+                    items(first:50) { nodes { id content { ... on Issue { number } } } }
+                  }
+                }
+              }
+            `, { owner: projectOwner, number: projectNumber })
+
+            const project = query.organization.projectV2
+            const projectId = project.id
+            const field = project.fields.nodes.find(f => f.name === statusFieldName)
+            const option = field.options.find(o => o.name === targetOptionName)
+            const issueNumber = context.payload.issue.number
+
+            let item = project.items.nodes.find(i => i.content && i.content.number === issueNumber)
+            if (!item) {
+              const add = await github.graphql(`
+                mutation($projectId: ID!, $contentId: ID!) {
+                  addProjectV2ItemByContent(input:{projectId:$projectId, contentId:$contentId}) {
+                    item { id }
+                  }
+                }
+              `, { projectId, contentId: context.payload.issue.node_id })
+              item = { id: add.addProjectV2ItemByContent.item.id }
+            }
+
+            await github.graphql(`
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input:{
+                  projectId: $projectId,
+                  itemId: $itemId,
+                  fieldId: $fieldId,
+                  value:{ singleSelectOptionId: $optionId }
+                }) {
+                  clientMutationId
+                }
+              }
+            `, { projectId, itemId: item.id, fieldId: field.id, optionId: option.id })
